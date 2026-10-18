@@ -214,7 +214,8 @@ function tryAgain() {
 
 /* ─── Helpers ─── */
 function capitalize(s) {
-  return s.charAt(0).toUpperCase() + s.slice(1);
+  if (!s) return '';
+  return s.replace(/_/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
 /* ─── Tactile Mobile Button Feedback & Touch 1 Guarantee ─── */
