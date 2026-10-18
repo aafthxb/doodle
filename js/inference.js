@@ -77,25 +77,79 @@ const EXPLANATIONS = {
 };
 const DEFAULT_EXPLANATION = "The Convolutional Neural Network extracted hierarchical stroke features and spatial patterns, recognizing distinctive contours characteristic of the predicted class.";
 
-let session     = null;
-let modelLoaded = false;
-let modelError  = null;
+let session      = null;
+let modelLoaded  = false;
+let modelState   = 'idle'; // 'idle' | 'loading' | 'ready' | 'error'
+let modelError   = null;
+let modelPromise = null;
+const modelStateListeners = [];
 
-/* ── Load model ── */
-async function loadModel() {
+function isModelReady() {
+  return modelState === 'ready' && session !== null;
+}
+
+function onModelStateChange(listener) {
+  if (typeof listener !== 'function') return;
+  modelStateListeners.push(listener);
   try {
-    if (typeof ort === 'undefined') throw new Error('ORT not available');
-    ort.env.wasm.numThreads = 1;
-    session = await ort.InferenceSession.create(MODEL_PATH, {
-      executionProviders: ['wasm'],
-      graphOptimizationLevel: 'all'
-    });
-    modelLoaded = true;
-    console.log('[Doodle] ✓ Model loaded |', session.inputNames, '→', session.outputNames);
-  } catch(e) {
-    modelError = e.message;
-    console.warn('[Doodle] Model not loaded:', e.message);
+    listener(modelState, modelError);
+  } catch (err) {
+    console.error('[Doodle] Error in modelState listener:', err);
   }
+}
+
+function notifyModelState() {
+  for (const listener of modelStateListeners) {
+    try {
+      listener(modelState, modelError);
+    } catch (err) {
+      console.error('[Doodle] Error in modelState listener:', err);
+    }
+  }
+}
+
+/* ── Asynchronous Singleton Model Loader ── */
+async function loadModel() {
+  if (modelState === 'ready' && session) {
+    return session;
+  }
+  if (modelState === 'loading' && modelPromise) {
+    return modelPromise;
+  }
+
+  modelState = 'loading';
+  modelLoaded = false;
+  modelError = null;
+  notifyModelState();
+
+  modelPromise = (async () => {
+    try {
+      if (typeof ort === 'undefined') throw new Error('ONNX Runtime Web (ort) not available');
+      ort.env.wasm.numThreads = 1;
+      session = await ort.InferenceSession.create(MODEL_PATH, {
+        executionProviders: ['wasm'],
+        graphOptimizationLevel: 'all'
+      });
+      modelLoaded = true;
+      modelState = 'ready';
+      modelError = null;
+      console.log('[Doodle] ✓ Model loaded & ready |', session.inputNames, '→', session.outputNames);
+      notifyModelState();
+      return session;
+    } catch (err) {
+      session = null;
+      modelLoaded = false;
+      modelState = 'error';
+      modelError = err.message || 'Model failed to load';
+      console.warn('[Doodle] Model loading failed:', modelError);
+      notifyModelState();
+      throw err;
+    } finally {
+      modelPromise = null;
+    }
+  })();
+
+  return modelPromise;
 }
 
 /* ── Preprocess: canvas → Float32[1,1,28,28] ── */
@@ -204,7 +258,9 @@ function softmax(a) {
 
 /* ── Run inference ── */
 async function runInference(canvas) {
-  if (!modelLoaded || !session) return getDemoResults(canvas);
+  if (!isModelReady()) {
+    throw new Error('AI Model is not ready yet');
+  }
   try {
     const raw = preprocessCanvas(canvas);
     const t   = new ort.Tensor('float32', raw, [1, 1, 28, 28]);
@@ -221,33 +277,9 @@ async function runInference(canvas) {
     };
   } catch(e) {
     console.error('[Doodle] Inference error:', e);
-    return getDemoResults(canvas);
+    throw e;
   }
 }
 
-/* ── Demo fallback ── */
-function getDemoResults(canvas) {
-  const ctx  = canvas.getContext('2d');
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  let h = 0;
-  for (let i = 0; i < data.length; i += 400) h = (h * 31 + data[i]) | 0;
-  const a = Math.abs(h)    % CLASSES.length;
-  const b = Math.abs(h*7)  % CLASSES.length;
-  const c = Math.abs(h*13) % CLASSES.length;
-  const p1 = 0.62 + Math.random() * 0.22;
-  const p2 = (1 - p1) * (0.6 + Math.random() * 0.25);
-  const p3 = 1 - p1 - p2;
-  const top3 = [
-    { label: CLASSES[a], prob: p1 },
-    { label: CLASSES[b], prob: p2 },
-    { label: CLASSES[c], prob: p3 },
-  ];
-  return {
-    top: top3[0],
-    predictions: top3,
-    explanation: EXPLANATIONS[top3[0].label] || DEFAULT_EXPLANATION,
-    isDemo: true
-  };
-}
-
-loadModel();
+// Automatically initiate background model loading without blocking page or navigation
+loadModel().catch(() => {});

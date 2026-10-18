@@ -73,6 +73,9 @@ function onEnterDraw() {
   const defSize = document.querySelector('.size-btn[data-px="8"]');
   if (defSize) defSize.classList.add('active');
 
+  // Ensure identify button reflects current model loading state
+  updateIdentifyButtonState();
+
   startTimer();
 }
 
@@ -83,7 +86,12 @@ function startTimer() {
   timerInterval = setInterval(() => {
     timerSecs--;
     renderTimer();
-    if (timerSecs <= 0) { stopTimer(); identifyDrawing(); }
+    if (timerSecs <= 0) {
+      stopTimer();
+      if (typeof isModelReady === 'function' && isModelReady()) {
+        identifyDrawing();
+      }
+    }
   }, 1000);
 }
 
@@ -105,10 +113,70 @@ function renderTimer() {
   }
 }
 
+/* ─── Model State & Identify Button Control ─── */
+function updateIdentifyButtonState() {
+  const btn = document.getElementById('btn-identify');
+  if (!btn) return;
+
+  const state = (typeof modelState !== 'undefined') ? modelState : 'loading';
+
+  if (state === 'ready') {
+    btn.disabled = false;
+    btn.classList.remove('is-disabled', 'is-retry');
+    btn.onclick = identifyDrawing;
+    btn.innerHTML = `
+      <span class="msi" style="font-size:22px">auto_awesome</span>
+      <span>Identify Drawing ✨</span>
+    `;
+  } else if (state === 'error') {
+    btn.disabled = false;
+    btn.classList.remove('is-disabled');
+    btn.classList.add('is-retry');
+    btn.onclick = retryModelLoad;
+    btn.innerHTML = `
+      <span class="msi" style="font-size:22px">refresh</span>
+      <span>Model load failed · Retry ↺</span>
+    `;
+  } else {
+    // 'idle' or 'loading'
+    btn.disabled = true;
+    btn.classList.remove('is-retry');
+    btn.classList.add('is-disabled');
+    btn.onclick = null;
+    btn.innerHTML = `
+      <span class="msi msi-spin" style="font-size:22px">progress_activity</span>
+      <span>Preparing AI model…</span>
+    `;
+  }
+}
+
+function retryModelLoad(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  if (typeof loadModel === 'function') {
+    loadModel().catch(err => {
+      console.warn('[Doodle] Retry load failed:', err.message);
+    });
+  }
+}
+
+// Connect model state listener
+if (typeof onModelStateChange === 'function') {
+  onModelStateChange(() => {
+    updateIdentifyButtonState();
+  });
+}
+
 /* ─── Identify ─── */
 async function identifyDrawing() {
   const btn = document.getElementById('btn-identify');
   if (btn && btn.disabled) return;
+  if (typeof isModelReady === 'function' && !isModelReady()) {
+    console.warn('[Doodle] Identify called before model was ready');
+    return;
+  }
   stopTimer();
 
   if (strokes.length === 0 && !canvasHasContent()) {
@@ -147,9 +215,9 @@ async function identifyDrawing() {
     alert('Model error during inference. Please try again.');
   } finally {
     if (btn) {
-      btn.disabled = false;
       btn.style.opacity = '';
       btn.style.transform = '';
+      updateIdentifyButtonState();
     }
   }
 }
@@ -284,6 +352,7 @@ function initTactileButtons() {
 /* ─── Bootstrap ─── */
 document.addEventListener('DOMContentLoaded', () => {
   initTactileButtons();
+  updateIdentifyButtonState();
   onEnterHome();
   console.log('[Doodle] App ready with tactile Touch 1 engine.');
 });
