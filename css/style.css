@@ -475,7 +475,9 @@ body {
   touch-action: manipulation;
   transition: box-shadow 0.1s, transform 0.1s, background-color 0.15s;
 }
-.objects-bar:hover {
+.objects-bar:hover,
+.objects-bar:active,
+.objects-bar.is-pressed {
   background: var(--surface-container);
 }
 .objects-bar:active,
@@ -522,7 +524,9 @@ body {
   margin-left: -9px; /* ~28% overlap of 32px */
   z-index: 3;
 }
-.objects-bar:hover .icon-stack-item {
+.objects-bar:hover .icon-stack-item,
+.objects-bar:active .icon-stack-item,
+.objects-bar.is-pressed .icon-stack-item {
   border-color: var(--surface-container);
 }
 .chip-library {
@@ -540,18 +544,33 @@ body {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
+  transition: color 0.15s ease;
 }
 @media (max-width: 360px) {
   .view-all-text { display: none; }
 }
-.objects-bar:hover .arrow-bubble {
-  background: var(--primary-container);
-}
-.objects-bar:hover .arrow-bubble .msi {
-  transform: translateX(2px);
+.arrow-bubble {
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 .arrow-bubble .msi {
-  transition: transform 0.2s;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+.objects-bar:hover .arrow-bubble,
+.objects-bar:active .arrow-bubble,
+.objects-bar.is-pressed .arrow-bubble {
+  background: var(--primary-container);
+  border-color: #174D2B;
+}
+.objects-bar:hover .arrow-bubble .msi,
+.objects-bar:active .arrow-bubble .msi,
+.objects-bar.is-pressed .arrow-bubble .msi {
+  color: var(--primary) !important;
+  transform: translateX(3px);
+}
+.objects-bar:hover .view-all-text,
+.objects-bar:active .view-all-text,
+.objects-bar.is-pressed .view-all-text {
+  color: var(--primary);
 }
 
 /* CTA area */
