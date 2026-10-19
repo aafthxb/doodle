@@ -2,7 +2,7 @@
    app.js  —  Navigation · Timer · Results
    ═══════════════════════════════════════════════ */
 
-const SCREENS = ['home', 'draw', 'results'];
+const SCREENS = ['home', 'draw', 'results', 'library'];
 
 /* ─── Navigation ─── */
 function navigate(to) {
@@ -19,6 +19,7 @@ function navigate(to) {
   fromEl.classList.remove('active');
   fromEl.classList.remove('anim-right', 'anim-left');
 
+
   // Show next
   toEl.classList.add('active');
   toEl.classList.remove('anim-right', 'anim-left');
@@ -31,6 +32,7 @@ function navigate(to) {
   if (to === 'draw')    onEnterDraw();
   if (to === 'home')    onEnterHome();
   if (to === 'results') onEnterResults();
+  if (to === 'library') onEnterLibrary();
 }
 
 /* ─── Home ─── */
@@ -38,6 +40,9 @@ function onEnterHome() {
   stopTimer();
   const btn = document.getElementById('btn-start');
   if (btn) btn.blur();
+  // Ensure objects-bar is not left in pressed state
+  const objBar = document.querySelector('.objects-bar');
+  if (objBar) { objBar.classList.remove('is-pressed'); objBar.blur(); }
 }
 
 /* ─── Draw screen ─── */
@@ -225,6 +230,64 @@ async function identifyDrawing() {
 /* ─── Results screen ─── */
 function onEnterResults() { /* rendering done before navigate */ }
 
+/* ─── Library screen ─── */
+function onEnterLibrary() {
+
+  // ── Bug 2 fix: accidental card activation on entry ──
+  // When the user taps "50 Objects" (home screen), the pointerdown fires on
+  // .objects-bar and a window-level pointerup listener is armed. By the time
+  // the finger lifts, the library grid has slid in and the browser can
+  // dispatch a synthetic pointerdown/click onto whichever doodle-card now
+  // occupies the same screen coordinates. Blocking pointer-events on the
+  // grid for the same guard window prevents any card from receiving that
+  // residual touch event.
+  const grid = document.getElementById('lib-grid');
+  if (grid) {
+    grid.style.pointerEvents = 'none';
+    setTimeout(() => { grid.style.pointerEvents = ''; }, 450);
+  }
+
+  // Reset search
+  const input = document.getElementById('lib-search-input');
+  const clearBtn = document.getElementById('lib-search-clear');
+  if (input) { input.value = ''; input.blur(); }
+  if (clearBtn) clearBtn.classList.remove('visible');
+  libFilterObjects('');
+
+  // Scroll the lib-main back to top
+  const libMain = document.querySelector('#screen-library .lib-main');
+  if (libMain) libMain.scrollTop = 0;
+  document.getElementById('screen-library').scrollTop = 0;
+}
+
+function libFilterObjects(query) {
+  const q = query.toLowerCase().trim();
+  const cards = document.querySelectorAll('#lib-grid .doodle-card[data-name]');
+  const counter = document.getElementById('lib-counter');
+  const emptyEl = document.getElementById('lib-empty');
+  let visible = 0;
+
+  cards.forEach(card => {
+    const name  = card.getAttribute('data-name') || '';
+    const idx   = card.getAttribute('data-index') || '';
+    const match = !q || name.includes(q) || idx.includes(q);
+    card.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+
+  if (counter) {
+    counter.innerHTML = '<span class="msi secondary" style="font-size:16px">category</span> Showing <strong style="color:var(--on-surface);margin:0 2px">' + visible + '</strong> of 50 objects';
+  }
+
+  if (emptyEl) {
+    if (visible === 0) {
+      emptyEl.classList.add('visible');
+    } else {
+      emptyEl.classList.remove('visible');
+    }
+  }
+}
+
 function renderResults({ top, predictions, explanation, isDemo }) {
   const pct   = Math.round(top.prob * 100);
   const emoji = CLASS_EMOJI[top.label] || '🎨';
@@ -291,7 +354,12 @@ function initTactileButtons() {
   // Enables iOS Safari :active pseudo-classes across all elements
   document.addEventListener('touchstart', () => {}, { passive: true });
 
-  const SELECTOR = 'button, .btn-primary-3d, .btn-identify, .clear-btn, .swatch, .tool-btn, .size-btn, .btn-circle, .btn-circle-sm, .btn-try-again, .btn-back-home';
+  const SELECTOR = 'button, .btn-primary-3d, .btn-identify, .clear-btn, .swatch, .tool-btn, .size-btn, .btn-circle, .btn-circle-sm, .btn-try-again, .btn-back-home, .objects-bar, .doodle-card';
+  // Screen-changing controls must use the browser's native click only.
+  // Manually calling click() on pointerup can switch screens before the
+  // original touch sequence finishes, allowing the gesture to affect the
+  // newly revealed library or drawing canvas.
+  const NATIVE_CLICK_ONLY = '.objects-bar, #btn-start, .btn-circle, .btn-back-home, .btn-try-again';
 
   // Prevent double execution when both pointerup and native click occur
   document.addEventListener('click', (e) => {
@@ -328,8 +396,10 @@ function initTactileButtons() {
         btn.classList.remove('is-pressed');
       }
 
-      // If finger lifted inside button bounds, guarantee immediate action
-      if (upEvt && upEvt.type === 'pointerup') {
+      // Preserve the manual click fallback for ordinary controls only.
+      // Navigation controls rely on the native click, which stays associated
+      // with the original pointer target and cannot bleed into the next screen.
+      if (upEvt && upEvt.type === 'pointerup' && !btn.matches(NATIVE_CLICK_ONLY)) {
         const rect = btn.getBoundingClientRect();
         if (
           upEvt.clientX >= rect.left && upEvt.clientX <= rect.right &&
@@ -353,6 +423,52 @@ function initTactileButtons() {
 document.addEventListener('DOMContentLoaded', () => {
   initTactileButtons();
   updateIdentifyButtonState();
-  onEnterHome();
+
+  // Keep library cards' original tactile press/release feel.
+  document.querySelectorAll('.doodle-card').forEach(card => {
+    card.addEventListener('mouseleave', () => card.classList.remove('is-pressed'));
+  });
+
+  // Init library search
+  const libInput   = document.getElementById('lib-search-input');
+  const libClear   = document.getElementById('lib-search-clear');
+  const libResetBtn = document.getElementById('lib-reset-btn');
+
+  if (libInput) {
+    libInput.addEventListener('input', e => {
+      libFilterObjects(e.target.value);
+      if (libClear) libClear.classList.toggle('visible', e.target.value.length > 0);
+    });
+  }
+  if (libClear) {
+    libClear.addEventListener('click', () => {
+      if (libInput) { libInput.value = ''; libInput.focus(); }
+      libFilterObjects('');
+      libClear.classList.remove('visible');
+    });
+  }
+  if (libResetBtn) {
+    libResetBtn.addEventListener('click', () => {
+      if (libInput) { libInput.value = ''; libInput.focus(); }
+      libFilterObjects('');
+      if (libClear) libClear.classList.remove('visible');
+    });
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const hash = window.location.hash.replace('#', '');
+  const targetScreen = params.get('screen') || hash;
+  if (targetScreen && SCREENS.includes(targetScreen) && targetScreen !== 'home') {
+    navigate(targetScreen);
+  } else {
+    onEnterHome();
+  }
   console.log('[Doodle] App ready with tactile Touch 1 engine.');
+});
+
+window.addEventListener('hashchange', () => {
+  const hash = window.location.hash.replace('#', '');
+  if (hash && SCREENS.includes(hash)) {
+    navigate(hash);
+  }
 });

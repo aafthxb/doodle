@@ -239,7 +239,7 @@ function preprocessCanvas(canvas) {
     if (out[i] > maxInk) maxInk = out[i];
   }
 
-  // Scale stroke intensity to full dynamic range [0, 1] so pastel colors don't degrade CNN features
+  // Scale stroke intensity to full dynamic range [0, 1] to match training preprocessing
   if (maxInk > 0.05) {
     for (let i = 0; i < SIZE * SIZE; i++) {
       out[i] = Math.min(1.0, out[i] / maxInk);
